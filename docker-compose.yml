@@ -1,0 +1,37 @@
+version: '3.9'
+services:
+  backend:
+    build: ./backend
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://uml_user:uml_pass@db:5432/uml_tasks
+      - LLM_API_URL=http://llm:8000/generate
+      - LLM_API_KEY=demo-key
+    depends_on:
+      - db
+      - llm
+    ports:
+      - "5000:5000"
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=uml_user
+      - POSTGRES_PASSWORD=uml_pass
+      - POSTGRES_DB=uml_tasks
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "55432:5432"
+  llm:
+    build: ./llm-mock
+    environment:
+      - RESPONSE_TEXT=Demo response from mock LLM
+    ports:
+      - "8000:8000"
+volumes:
+  postgres_data:
