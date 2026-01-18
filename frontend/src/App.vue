@@ -4,40 +4,51 @@
     <p class="hint">Bitte wählen Sie die gewünschten Parameter aus, um den UML-Generator zu konfigurieren.</p>
     <div class="dropdowns">
       <label>
-        Parameter 1:
+        Modell:
+        <select v-model="param4">
+          <option value="">Please choose</option>
+          <option value="ChatGPT-4">ChatGPT-4</option>
+          <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+        </select>
+      </label>
+      <label>
+        Type of exercise:
         <select v-model="param1">
-          <option value="">Bitte wählen</option>
-          <option value="A">A</option>
-          <option value="B">B</option>
-          <option value="C">C</option>
+          <option value="">Please choose</option>
+          <option value="Text-Exercise">Text-exercise</option>
         </select>
       </label>
       <label>
-        Parameter 2:
+        Level of difficulty:
         <select v-model="param2">
-          <option value="">Bitte wählen</option>
-          <option value="X">X</option>
-          <option value="Y">Y</option>
-          <option value="Z">Z</option>
+          <option value="">Please choose</option>
+          <option value="Beginner">Beginner</option>
+          <option value="Intermediate">Intermediate</option>
+          <option value="Expert">Expert</option>
         </select>
       </label>
       <label>
-        Parameter 3:
+        Study goal:
         <select v-model="param3">
-          <option value="">Bitte wählen</option>
-          <option value="1">1</option>
-          <option value="2">2</option>
-          <option value="3">3</option>
+          <option value="">Please choose</option>
+          <option value="Defining attributes that could be a class (ART)">Defining attributes that could be a class (ART)</option>
+          <option value="Not considering the problem from an holistic perspective (HOL)">Not considering the problem from an holistic perspective (HOL)</option>
+          <option value="LIS">Incorrect use of multiplicity between classes (LIS)</option>
+          <option value="COM">Classes with inadequate or insufficient behavior (COM)</option>
+        </select>
+      </label>
+      <label>
+        Length of exercise:
+        <select v-model="param4">
+          <option value="">Please choose</option>
+          <option value="Short">Short</option>
+          <option value="Medium">Medium</option>
+          <option value="Long">Long</option>
         </select>
       </label>
     </div>
     <label class="prompt-template">
-      Prompt-Vorlage:
-      <textarea
-        v-model="promptTemplate"
-        rows="5"
-        placeholder="Beschreibe hier die Aufgabe. Du kannst {param1}, {param2}, {param3} verwenden."
-      ></textarea>
+
     </label>
     <button :disabled="isSubmitting" @click="submitGeneration">
       {{ isSubmitting ? "Wird generiert..." : "Aufgabe generieren" }}
@@ -114,6 +125,18 @@ export default {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
+}
+.dropdowns label {
+  min-width: 0;
+}
+.dropdowns select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .prompt-template {
   display: block;
