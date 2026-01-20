@@ -5,23 +5,20 @@
     <div class="dropdowns">
       <label>
         Modell:
-        <select v-model="param4">
-          <option value="">Please choose</option>
-          <option value="ChatGPT-4">ChatGPT-4</option>
+        <select v-model="param_model">
           <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+          <option value="ChatGPT-4">ChatGPT-4</option>
         </select>
       </label>
       <label>
         Type of exercise:
-        <select v-model="param1">
-          <option value="">Please choose</option>
+        <select v-model="param_ex_type">
           <option value="Text-Exercise">Text-exercise</option>
         </select>
       </label>
       <label>
         Level of difficulty:
-        <select v-model="param2">
-          <option value="">Please choose</option>
+        <select v-model="param_dif_level">
           <option value="Beginner">Beginner</option>
           <option value="Intermediate">Intermediate</option>
           <option value="Expert">Expert</option>
@@ -29,8 +26,7 @@
       </label>
       <label>
         Study goal:
-        <select v-model="param3">
-          <option value="">Please choose</option>
+        <select v-model="param_study_goal">
           <option value="Defining attributes that could be a class (ART)">Defining attributes that could be a class (ART)</option>
           <option value="Not considering the problem from an holistic perspective (HOL)">Not considering the problem from an holistic perspective (HOL)</option>
           <option value="LIS">Incorrect use of multiplicity between classes (LIS)</option>
@@ -39,8 +35,7 @@
       </label>
       <label>
         Length of exercise:
-        <select v-model="param4">
-          <option value="">Please choose</option>
+        <select v-model="param_length">
           <option value="Short">Short</option>
           <option value="Medium">Medium</option>
           <option value="Long">Long</option>
@@ -54,9 +49,9 @@
       {{ isSubmitting ? "Wird generiert..." : "Aufgabe generieren" }}
     </button>
     <section v-if="result" class="result">
-      <h2>Generierte Aufgabe</h2>
-      <pre>{{ result.task }}</pre>
-    </section>
+          <h2>Generierte Aufgabe</h2>
+          <pre class="json-output">{{ formatTaskJson() }}</pre>
+        </section>
     <p v-if="error" class="error">{{ error }}</p>
   </div>
 </template>
@@ -68,29 +63,42 @@ export default {
   name: 'App',
   data() {
     return {
-      param1: '',
-      param2: '',
-      param3: '',
+      param_model: 'gemini-2.5-flash', // erste Option
+      param_ex_type: 'Text-Exercise',  // erste Option
+      param_dif_level: 'Beginner',     // erste Option
+      param_study_goal: 'Defining attributes that could be a class (ART)', // erste Option
+      param_length: 'Short',
       isSubmitting: false,
       result: null,
       error: '',
       promptTemplate:
-        'Erstelle eine UML-Aufgabe, die sich auf {param1}, {param2} und {param3} bezieht. Beschreibe sie als Liste von Anforderungen.'
+        'Erstelle eine UML-Aufgabe basierend auf den Parametern: Modell={param_model}, Aufgabentyp={param_ex_type}, Schwierigkeit={param_dif_level}, Lernziel={param_study_goal}, Länge={param_length}. Formuliere die Aufgabe als Liste von Anforderungen.'
     }
   },
   methods: {
     async submitGeneration() {
       this.error = ''
       this.result = null
+
       const parameters = {
-        param1: this.param1,
-        param2: this.param2,
-        param3: this.param3
+        param_model: this.param_model,
+        param_ex_type: this.param_ex_type,
+        param_dif_level: this.param_dif_level,
+        param_study_goal: this.param_study_goal,
+        param_length: this.param_length
       }
-      if (!parameters.param1 || !parameters.param2 || !parameters.param3) {
+
+      if (
+        !parameters.param_model ||
+        !parameters.param_ex_type ||
+        !parameters.param_dif_level ||
+        !parameters.param_study_goal ||
+        !parameters.param_length
+      ) {
         this.error = 'Bitte alle Parameter auswählen.'
         return
       }
+
       this.isSubmitting = true
       try {
         const response = await axios.post('/api/generate', {
@@ -102,6 +110,17 @@ export default {
         this.error = err.response?.data?.error || 'Fehler bei der Generierung.'
       } finally {
         this.isSubmitting = false
+      }
+    },
+
+    formatTaskJson() {
+      try {
+        const obj = typeof this.result.task === 'string'
+          ? JSON.parse(this.result.task)
+          : this.result.task
+        return JSON.stringify(obj, null, 2)
+      } catch (e) {
+        return this.result.task
       }
     }
   }
@@ -170,5 +189,14 @@ button:disabled {
 .error {
   margin-top: 12px;
   color: #dc2626;
+}
+
+.json-output {
+  text-align: left;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-x: auto;
+  max-width: 100%;
+  max-height: 400px;
 }
 </style>

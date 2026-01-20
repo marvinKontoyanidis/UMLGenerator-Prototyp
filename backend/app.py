@@ -40,6 +40,11 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
         try:
             generation_request = GenerationRequest(
                 parameters=parameters,
+                param_model=parameters["param_model"],
+                param_ex_type=parameters["param_ex_type"],
+                param_dif_level=parameters["param_dif_level"],
+                param_study_goal=parameters["param_study_goal"],
+                param_length=parameters["param_length"],
                 prompt_template=prompt_template,
                 generated_task="",
             )
