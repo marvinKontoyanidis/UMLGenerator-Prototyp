@@ -61,7 +61,7 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
                     400,
                 )
 
-            llm_response = llm_client.generate(prompt)
+            llm_response = llm_client.generate(prompt, generation_request.param_model)
             app.logger.info("LLM response: %s", llm_response)
             generation_request.generated_task = llm_response
             session.commit()
