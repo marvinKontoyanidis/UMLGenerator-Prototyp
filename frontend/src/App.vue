@@ -1,34 +1,34 @@
 <template>
   <div class="container">
-    <h1>UML-Generator</h1>
-    <p class="hint">Bitte wählen Sie die gewünschten Parameter aus, um den UML-Generator zu konfigurieren.</p>
+    <h1>UML Generator</h1>
+    <p class="hint">Please select the desired parameters to configure the UML generator.</p>
     <div class="dropdowns">
       <label>
-        Modell:
+        Model:
         <select v-model="param_model">
           <option value="gemini-2.5-flash">gemini-2.5-flash</option>
           <option value="gpt-oss:120b">gpt-oss:120b</option>
         </select>
       </label>
       <label>
-        Type of exercise:
+        Type of UML:
         <select v-model="param_ex_type">
-          <option value="Text-Exercise">Text-exercise</option>
+          <option value="Class diagram">Class diagramm</option>
         </select>
       </label>
       <label>
         Level of difficulty:
         <select v-model="param_dif_level">
-          <option value="Beginner">Beginner</option>
-          <option value="Intermediate">Intermediate</option>
-          <option value="Expert">Expert</option>
+          <option value="Easy">Beginner</option>
+          <option value="Medium">Intermediate</option>
+          <option value="Hard">Expert</option>
         </select>
       </label>
       <label>
         Study goal:
         <select v-model="param_study_goal">
-          <option value="Defining attributes that could be a class (ART)">Defining attributes that could be a class (ART)</option>
-          <option value="Not considering the problem from an holistic perspective (HOL)">Not considering the problem from an holistic perspective (HOL)</option>
+          <option value="ART">Defining attributes that could be a class (ART)</option>
+          <option value="HOL">Not considering the problem from a holistic perspective (HOL)</option>
           <option value="LIS">Incorrect use of multiplicity between classes (LIS)</option>
           <option value="COM">Classes with inadequate or insufficient behavior (COM)</option>
         </select>
@@ -46,12 +46,40 @@
 
     </label>
     <button :disabled="isSubmitting" @click="submitGeneration">
-      {{ isSubmitting ? "Wird generiert..." : "Aufgabe generieren" }}
+      {{ isSubmitting ? "Generating..." : "Generate exercise" }}
     </button>
-    <section v-if="result" class="result">
-          <h2>Generierte Aufgabe</h2>
-          <pre class="json-output">{{ formatTaskJson() }}</pre>
-        </section>
+
+    <!-- Structured display of the LLM task -->
+    <section v-if="parsedTask" class="result">
+      <h2>{{ parsedTask.title }}</h2>
+
+      <h3>Learning objectives</h3>
+      <ul>
+        <li v-for="(obj, idx) in parsedTask.learning_objectives" :key="idx">
+          {{ obj }}
+        </li>
+      </ul>
+
+      <h3>Problem description</h3>
+      <p class="problem-description">
+        {{ parsedTask.problem_description }}
+      </p>
+
+      <h3>Selected parameters / Metadata</h3>
+      <ul class="metadata">
+        <li>Difficulty level: {{ parsedTask.metadata.difficulty_level }}</li>
+        <li>Length: {{ parsedTask.metadata.length }}</li>
+        <li>Study goal: {{ parsedTask.metadata.study_goal_id }}</li>
+        <li>Diagram type: {{ parsedTask.metadata.diagram_type }}</li>
+      </ul>
+    </section>
+
+    <!-- Fallback: if parsing fails, show raw response -->
+    <section v-else-if="result" class="result">
+      <h2>Raw response</h2>
+      <pre class="json-output">{{ result.response }}</pre>
+    </section>
+
     <p v-if="error" class="error">{{ error }}</p>
   </div>
 </template>
@@ -63,22 +91,22 @@ export default {
   name: 'App',
   data() {
     return {
-      param_model: 'gemini-2.5-flash', // erste Option
-      param_ex_type: 'Text-Exercise',  // erste Option
-      param_dif_level: 'Beginner',     // erste Option
-      param_study_goal: 'Defining attributes that could be a class (ART)', // erste Option
+      param_model: 'gemini-2.5-flash',
+      param_ex_type: 'Class diagram',
+      param_dif_level: 'Easy',
+      param_study_goal: 'LIS',
       param_length: 'Short',
       isSubmitting: false,
       result: null,
-      error: '',
-      promptTemplate:
-        'Erstelle eine UML-Aufgabe basierend auf den Parametern: Modell={param_model}, Aufgabentyp={param_ex_type}, Schwierigkeit={param_dif_level}, Lernziel={param_study_goal}, Länge={param_length}. Formuliere die Aufgabe als Liste von Anforderungen.'
+      parsedTask: null,
+      error: ''
     }
   },
   methods: {
     async submitGeneration() {
       this.error = ''
       this.result = null
+      this.parsedTask = null
 
       const parameters = {
         param_model: this.param_model,
@@ -95,39 +123,50 @@ export default {
         !parameters.param_study_goal ||
         !parameters.param_length
       ) {
-        this.error = 'Bitte alle Parameter auswählen.'
+        this.error = 'Please select all parameters.'
         return
       }
 
       this.isSubmitting = true
       try {
-        const response = await axios.post('/api/generate', {
-          parameters,
-          prompt_template: this.promptTemplate
-        })
+        const response = await axios.post('/api/generate', { parameters })
         this.result = response.data
+
+        const raw = this.result.response
+
+        if (!raw) {
+          this.parsedTask = null
+          console.error('No response from backend received')
+          return
+        }
+
+        if (typeof raw === 'string') {
+          // If the string is wrapped in ``` ... ```, remove those backticks
+          const cleaned = raw.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '')
+          try {
+            this.parsedTask = JSON.parse(cleaned)
+          } catch (e) {
+            this.parsedTask = null
+            console.error('Error parsing LLM response string:', e, cleaned)
+          }
+        } else if (typeof raw === 'object') {
+          // Already provided as an object
+          this.parsedTask = raw
+        } else {
+          this.parsedTask = null
+          console.error('Unexpected type for result.response:', typeof raw, raw)
+        }
       } catch (err) {
-        this.error = err.response?.data?.error || 'Fehler bei der Generierung.'
+        this.error = err.response?.data?.error || 'Error during generation.'
       } finally {
         this.isSubmitting = false
-      }
-    },
-
-    formatTaskJson() {
-      try {
-        const obj = typeof this.result.task === 'string'
-          ? JSON.parse(this.result.task)
-          : this.result.task
-        return JSON.stringify(obj, null, 2)
-      } catch (e) {
-        return this.result.task
       }
     }
   }
 }
 </script>
 
-<!-- Globale Styles werden jetzt in src/assets/global.css verwaltet -->
+<!-- Global styles are managed in src/assets/global.css -->
 
 <style scoped>
 .container {
@@ -198,5 +237,12 @@ button:disabled {
   overflow-x: auto;
   max-width: 100%;
   max-height: 400px;
+}
+.problem-description {
+  white-space: pre-wrap;
+}
+.metadata {
+  list-style: none;
+  padding-left: 0;
 }
 </style>

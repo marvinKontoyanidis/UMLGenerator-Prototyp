@@ -21,7 +21,7 @@ class GenerationRequest(Base):
     param_length = Column(Text, nullable=False)
 
     prompt_template = Column(Text, nullable=False)
-    generated_task = Column(Text, nullable=False)
+    generated_response = Column(Text, nullable=False)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(
@@ -31,5 +31,3 @@ class GenerationRequest(Base):
         onupdate=datetime.utcnow,
     )
 
-    def build_prompt(self) -> str:
-        return self.prompt_template.format(**self.parameters)

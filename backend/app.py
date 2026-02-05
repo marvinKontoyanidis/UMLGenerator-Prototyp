@@ -29,49 +29,50 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
     def generate_task():
         payload = request.get_json() or {}
         parameters = payload.get("parameters")
-        prompt_template = payload.get("prompt_template")
 
         if not isinstance(parameters, dict) or not parameters:
             return jsonify({"error": "parameters must be a non-empty object"}), 400
-        if not isinstance(prompt_template, str) or not prompt_template.strip():
-            return jsonify({"error": "prompt_template must be a non-empty string"}), 400
+
 
         session = session_factory()
         try:
+            model = parameters["param_model"]
+            ex_type = parameters["param_ex_type"]
+            dif_level = parameters["param_dif_level"]
+            study_goal = parameters["param_study_goal"]
+            length = parameters["param_length"]
+
+            llm_response, prompt = llm_client.generate(
+                model=model,
+                ex_type=ex_type,
+                dif_level=dif_level,
+                study_goal=study_goal,
+                length=length,
+            )
+
+            app.logger.info("Generated prompt for LLM: %s", prompt)
+            app.logger.info("LLM response: %s", llm_response)
+
             generation_request = GenerationRequest(
                 parameters=parameters,
-                param_model=parameters["param_model"],
-                param_ex_type=parameters["param_ex_type"],
-                param_dif_level=parameters["param_dif_level"],
-                param_study_goal=parameters["param_study_goal"],
-                param_length=parameters["param_length"],
-                prompt_template=prompt_template,
-                generated_task="",
+                param_model=model,
+                param_ex_type=ex_type,
+                param_dif_level=dif_level,
+                param_study_goal=study_goal,
+                param_length=length,
+                prompt_template=prompt,
+                generated_response=llm_response,
             )
             session.add(generation_request)
-            session.flush()  # assign primary key before hitting the LLM
+            session.commit()  # assign primary key before hitting the LLM
 
-            try:
-                prompt = generation_request.build_prompt()
-                app.logger.info("Generated prompt for LLM: %s", prompt)
-            except KeyError as exc:
-                session.rollback()
-                return (
-                    jsonify({"error": f"Missing parameter for prompt template: {exc}"}),
-                    400,
-                )
-
-            llm_response = llm_client.generate(prompt, generation_request.param_model)
-            app.logger.info("LLM response: %s", llm_response)
-            generation_request.generated_task = llm_response
-            session.commit()
 
             return (
                 jsonify(
                     {
                         "id": generation_request.id,
                         "prompt": prompt,
-                        "task": llm_response,
+                        "response": llm_response,
                         "parameters": generation_request.parameters,
                     }
                 ),
