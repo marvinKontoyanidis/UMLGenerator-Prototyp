@@ -7,7 +7,7 @@
         Model:
         <select v-model="param_model">
           <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-          <option value="gpt-5">gpt-5</option>
+          <option value="gpt-5.1">gpt-5</option>
           <option value="gpt-oss:120b">gpt-oss:120b</option>
         </select>
       </label>
@@ -46,6 +46,12 @@
     <label class="prompt-template">
 
     </label>
+
+    <label class="toggle-eval">
+      <input type="checkbox" v-model="evaluate" />
+      Evaluate generated exercise with a second LLM
+    </label>
+
     <button :disabled="isSubmitting" @click="submitGeneration">
       {{ isSubmitting ? "Generating..." : "Generate exercise" }}
     </button>
@@ -73,6 +79,28 @@
         <li>Study goal: {{ parsedTask.metadata.study_goal_id }}</li>
         <li>Diagram type: {{ parsedTask.metadata.diagram_type }}</li>
       </ul>
+
+      <section v-if="evaluationScores" class="evaluation">
+        <h3>Automatic evaluation scores</h3>
+        <table class="scores-table">
+          <thead>
+            <tr>
+              <th>Dimension</th>
+              <th>Item</th>
+              <th>Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="(items, dim) in evaluationScores" :key="dim">
+              <tr v-for="(score, itemKey) in items" :key="`${dim}-${itemKey}`">
+                <td>{{ dim }}</td>
+                <td>{{ itemKey }}</td>
+                <td>{{ score }}</td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </section>
     </section>
 
     <!-- Fallback: if parsing fails, show raw response -->
@@ -97,9 +125,11 @@ export default {
       param_dif_level: 'Easy',
       param_study_goal: 'LIS',
       param_length: 'Short',
+      evaluate: true,
       isSubmitting: false,
       result: null,
       parsedTask: null,
+      evaluationScores: null,
       error: ''
     }
   },
@@ -108,6 +138,7 @@ export default {
       this.error = ''
       this.result = null
       this.parsedTask = null
+      this.evaluationScores = null
 
       const parameters = {
         param_model: this.param_model,
@@ -130,7 +161,7 @@ export default {
 
       this.isSubmitting = true
       try {
-        const response = await axios.post('/api/generate', { parameters })
+        const response = await axios.post('/api/generate', { parameters, evaluate: this.evaluate })
         this.result = response.data
 
         const raw = this.result.response
@@ -142,7 +173,6 @@ export default {
         }
 
         if (typeof raw === 'string') {
-          // If the string is wrapped in ``` ... ```, remove those backticks
           const cleaned = raw.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '')
           try {
             this.parsedTask = JSON.parse(cleaned)
@@ -151,11 +181,15 @@ export default {
             console.error('Error parsing LLM response string:', e, cleaned)
           }
         } else if (typeof raw === 'object') {
-          // Already provided as an object
           this.parsedTask = raw
         } else {
           this.parsedTask = null
           console.error('Unexpected type for result.response:', typeof raw, raw)
+        }
+
+        // Store evaluation scores if present
+        if (this.result.evaluation_scores && typeof this.result.evaluation_scores === 'object') {
+          this.evaluationScores = this.result.evaluation_scores
         }
       } catch (err) {
         this.error = err.response?.data?.error || 'Error during generation.'
@@ -201,6 +235,11 @@ export default {
   display: block;
   margin-top: 16px;
 }
+.toggle-eval {
+  display: block;
+  margin-top: 12px;
+  text-align: left;
+}
 textarea {
   width: 100%;
   margin-top: 8px;
@@ -245,5 +284,18 @@ button:disabled {
 .metadata {
   list-style: none;
   padding-left: 0;
+}
+.evaluation {
+  margin-top: 16px;
+}
+.scores-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.scores-table th,
+.scores-table td {
+  border: 1px solid #e5e7eb;
+  padding: 4px 8px;
+  text-align: left;
 }
 </style>

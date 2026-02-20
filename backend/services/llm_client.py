@@ -64,6 +64,10 @@ class LLMClient:
     def generate(self, model: str, ex_type: str, dif_level: str, study_goal: str, length: str) -> tuple[str, str]:
         """Generate a UML exercise using a given model.
 
+        This method is **only** for exercise generation. It always builds
+        an internal system prompt via `prompt_generation` based on the
+        structured parameters.
+
         - Default model: "gpt-4" (OpenAI)
         - Supported values: "gpt-4", "gpt-3.5", "gemini-1.5"
 
@@ -76,18 +80,38 @@ class LLMClient:
 
 
         if model == "gpt-5":
-            logger.info("Sending prompt to OpenAI model %s", model)
+            logger.info("Sending generation prompt to OpenAI model %s", model)
             llm_response = send_to_openai(self, model, system_prompt)
         if model in ("gpt-4", "gpt-3.5", "gpt-oss:120b"):
-            logger.info("Sending prompt to OpenAI model %s", model)
+            logger.info("Sending generation prompt to OpenAI-compatible model %s", model)
             llm_response = send_to_basai(self, model, system_prompt)
         elif model == "gemini-2.5-flash":
-            logger.info("Sending prompt to Gemini model %s", model)
+            logger.info("Sending generation prompt to Gemini model %s", model)
             llm_response =  send_to_gemini(self, model, system_prompt)
         else:
             raise ValueError(f"Unsupported model: {model}")
 
         return llm_response, system_prompt
+
+    def evaluate(self, model: str, evaluation_prompt: str) -> str:
+        """Send an evaluation prompt as-is to the given model and return raw text.
+
+        This method must be used for scoring/evaluation, so that the
+        evaluation prompt built in the API layer is not overridden by
+        the exercise-generation logic.
+        """
+
+        if model == "gpt-5":
+            logger.info("Sending evaluation prompt to OpenAI model %s", model)
+            return send_to_openai(self, model, evaluation_prompt)
+        if model in ("gpt-4", "gpt-3.5", "gpt-oss:120b"):
+            logger.info("Sending evaluation prompt to OpenAI-compatible model %s", model)
+            return send_to_basai(self, model, evaluation_prompt)
+        elif model == "gemini-2.5-flash":
+            logger.info("Sending evaluation prompt to Gemini model %s", model)
+            return send_to_gemini(self, model, evaluation_prompt)
+        else:
+            raise ValueError(f"Unsupported model: {model}")
 
 
 # Backwards-compatible function for any existing direct imports
