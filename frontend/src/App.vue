@@ -7,6 +7,7 @@
         Model:
         <select v-model="param_model">
           <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+          <option value="gpt-5">gpt-5</option>
           <option value="gpt-oss:120b">gpt-oss:120b</option>
         </select>
       </label>

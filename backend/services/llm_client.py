@@ -20,6 +20,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class LLMConfig:
     # ChatGPT OpenAI
+    openai_api_key: Optional[str] = None
+    # BaSiAI (OpenAI-compatible API)
     bisai_url: str = None
     bisai_api_key: Optional[str] = None
     # Gemini AI Google
@@ -28,6 +30,7 @@ class LLMConfig:
     @classmethod
     def from_env(cls) -> "LLMConfig":
         return cls(
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
             bisai_url=os.getenv("BISAI_BASE_URL"),
             bisai_api_key=os.getenv("BISAI_API_KEY"),
             gemini_api_key=os.getenv("GEMINI_API_KEY"),
@@ -45,7 +48,13 @@ class LLMClient:
                 "OPENAI_API_KEY is not set. Please configure it in .env.local or the environment."
             )
 
-        self._openai_client = OpenAI(api_key=self.config.bisai_api_key)
+        if not self.config.openai_api_key:
+            raise RuntimeError(
+                "OPENAI_KEY is not set. Please configure it in .env.local or the environment."
+            )
+
+        self._openai_client = OpenAI(api_key=self.config.openai_api_key)
+
 
         # Gemini is optional – only initialize if a key is present
         self._gemini_client: Optional[genai.GenerativeModel] = None
@@ -66,6 +75,9 @@ class LLMClient:
         system_prompt = prompt_generation(ex_type, dif_level, study_goal, length)
 
 
+        if model == "gpt-5":
+            logger.info("Sending prompt to OpenAI model %s", model)
+            llm_response = send_to_openai(self, model, system_prompt)
         if model in ("gpt-4", "gpt-3.5", "gpt-oss:120b"):
             logger.info("Sending prompt to OpenAI model %s", model)
             llm_response = send_to_basai(self, model, system_prompt)
@@ -93,6 +105,15 @@ def generate_uml_exercise_with_openai(user_prompt: str) -> str:
     """Legacy helper that delegates to the shared LLMClient instance using default model."""
     return _get_default_client().generate(user_prompt)
 
+def send_to_openai(self: LLMClient, model_name: str, system_prompt: str) -> str:
+    response = self._openai_client.chat.completions.create(
+        model=model_name,
+        messages=[
+            {"role": "system", "content": system_prompt}
+        ],
+        temperature=1,
+    )
+    return response.choices[0].message.content
 
 def send_to_basai(self: LLMClient, model_name: str, system_prompt: str) -> str:
     url = f"{self.config.bisai_url}/api/chat/completions"
@@ -153,12 +174,7 @@ def prompt_generation(exercise_type: str, difficulty_level: str, study_goal: str
             - Do not generate any UML diagrams or code directly; instead, describe the scenario and the modelling requirements in natural language so that students can create the diagram themselves.
             - If there is any conflict between general conventions and the explicit parameter descriptions, always follow the explicit parameter descriptions.
         """
-
-    # ToDo
-    # Define a variation prompt that instructs the LLM to generate a taks that is as diverse as possible from typical
-    # textbook examples, to encourage creativity and avoid clichés. This could be a general instruction that applies
-    # to all exercise types and study goals, or it could be integrated into the start prompt.
-
+    
     # Defines exercise type prompt
     if exercise_type == "Class diagram":
         exercise_prompt = """
