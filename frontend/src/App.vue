@@ -7,7 +7,7 @@
         Model:
         <select v-model="param_model">
           <option value="gemini-2.5-flash">gemini-2.5-flash</option>
-          <option value="gpt-5.1">gpt-5</option>
+          <option value="gpt-5.1-chat-latest">gpt-5.1-chat-latest</option>
           <option value="gpt-oss:120b">gpt-oss:120b</option>
         </select>
       </label>
@@ -80,24 +80,51 @@
         <li>Diagram type: {{ parsedTask.metadata.diagram_type }}</li>
       </ul>
 
-      <section v-if="evaluationScores" class="evaluation">
+      <section v-if="evaluation" class="evaluation">
         <h3>Automatic evaluation scores</h3>
-        <table class="scores-table">
+
+        <!-- Overall total score -->
+        <p class="overall-score" v-if="evaluation.fullScore != null">
+          Overall quality score: <strong>{{ evaluation.fullScore.toFixed(2) }}</strong> / 10
+        </p>
+
+        <!-- Dimension aggregates -->
+        <h4>Dimension scores</h4>
+        <table class="scores-table dim-table">
+          <thead>
+            <tr>
+              <th>Dimension</th>
+              <th>Code</th>
+              <th>Score (0–2)</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="dim in dimensionRows" :key="dim.code">
+              <td>{{ dim.label }}</td>
+              <td>{{ dim.code }}</td>
+              <td>{{ dim.score != null ? dim.score.toFixed(2) : '-' }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Per-item scores with justifications -->
+        <h4>Item scores and justifications</h4>
+        <table class="scores-table item-table">
           <thead>
             <tr>
               <th>Dimension</th>
               <th>Item</th>
               <th>Score</th>
+              <th>Justification</th>
             </tr>
           </thead>
           <tbody>
-            <template v-for="(items, dim) in evaluationScores" :key="dim">
-              <tr v-for="(score, itemKey) in items" :key="`${dim}-${itemKey}`">
-                <td>{{ dim }}</td>
-                <td>{{ itemKey }}</td>
-                <td>{{ score }}</td>
-              </tr>
-            </template>
+            <tr v-for="row in itemRows" :key="`${row.dimension}-${row.item}`">
+              <td>{{ row.dimensionLabel }}</td>
+              <td>{{ row.item }}</td>
+              <td>{{ row.score != null ? row.score : '-' }}</td>
+              <td>{{ row.justification || '-' }}</td>
+            </tr>
           </tbody>
         </table>
       </section>
@@ -129,8 +156,51 @@ export default {
       isSubmitting: false,
       result: null,
       parsedTask: null,
-      evaluationScores: null,
+      evaluation: null,
       error: ''
+    }
+  },
+  computed: {
+    dimensionRows() {
+      if (!this.evaluation) return []
+      return [
+        { code: 'T', label: 'Exercise adherence', score: this.evaluation.dimensions.T },
+        { code: 'D', label: 'Difficulty profile adherence', score: this.evaluation.dimensions.D },
+        { code: 'S', label: 'Study goal alignment', score: this.evaluation.dimensions.S },
+        { code: 'L', label: 'Length adherence', score: this.evaluation.dimensions.L },
+        { code: 'P', label: 'Pedagogical quality', score: this.evaluation.dimensions.P }
+      ]
+    },
+    itemRows() {
+      if (!this.evaluation) return []
+      const rows = []
+      const dimLabels = {
+        T: 'Exercise adherence',
+        D: 'Difficulty profile adherence',
+        S: 'Study goal alignment',
+        L: 'Length adherence',
+        P: 'Pedagogical quality'
+      }
+      const itemToDim = {
+        T1: 'T', T2: 'T',
+        D1: 'D', D2: 'D', D3: 'D', D4: 'D',
+        S1: 'S', S2: 'S', S3: 'S',
+        L1: 'L', L2: 'L',
+        P1: 'P', P2: 'P', P3: 'P', P4: 'P'
+      }
+      const items = this.evaluation.items || {}
+      const justs = this.evaluation.justifications || {}
+      for (const [item, score] of Object.entries(items)) {
+        const dim = itemToDim[item]
+        rows.push({
+          dimension: dim,
+          dimensionLabel: dimLabels[dim] || dim,
+          item,
+          score,
+          justification: justs[item]
+        })
+      }
+      return rows
     }
   },
   methods: {
@@ -138,7 +208,7 @@ export default {
       this.error = ''
       this.result = null
       this.parsedTask = null
-      this.evaluationScores = null
+      this.evaluation = null
 
       const parameters = {
         param_model: this.param_model,
@@ -187,9 +257,28 @@ export default {
           console.error('Unexpected type for result.response:', typeof raw, raw)
         }
 
-        // Store evaluation scores if present
+        // Extract evaluation details (if backend provides them)
         if (this.result.evaluation_scores && typeof this.result.evaluation_scores === 'object') {
-          this.evaluationScores = this.result.evaluation_scores
+          const scores = this.result.evaluation_scores
+          // Legacy simple map
+          this.evaluationScores = scores
+        }
+
+        // New structured evaluation object if backend is extended:
+        // Expecting shape similar to:
+        // {
+        //   items: { T1: number, ... },
+        //   dimensions: { T: number, D: number, ... },
+        //   fullScore: number,
+        //   justifications: { T1: string, ... }
+        // }
+        if (this.result.evaluation && typeof this.result.evaluation === 'object') {
+          this.evaluation = {
+            items: this.result.evaluation.items || {},
+            dimensions: this.result.evaluation.dimensions || {},
+            fullScore: this.result.evaluation.fullScore ?? null,
+            justifications: this.result.evaluation.justifications || {}
+          }
         }
       } catch (err) {
         this.error = err.response?.data?.error || 'Error during generation.'
@@ -297,5 +386,15 @@ button:disabled {
   border: 1px solid #e5e7eb;
   padding: 4px 8px;
   text-align: left;
+}
+.overall-score {
+  margin-bottom: 12px;
+}
+.dim-table {
+  margin-bottom: 16px;
+}
+.item-table td:nth-child(4) {
+  max-width: 300px;
+  white-space: pre-wrap;
 }
 </style>

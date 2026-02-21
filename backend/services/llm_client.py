@@ -79,10 +79,10 @@ class LLMClient:
         system_prompt = prompt_generation(ex_type, dif_level, study_goal, length)
 
 
-        if model == "gpt-5":
+        if model == "gpt-5.1-chat-latest":
             logger.info("Sending generation prompt to OpenAI model %s", model)
             llm_response = send_to_openai(self, model, system_prompt)
-        if model in ("gpt-4", "gpt-3.5", "gpt-oss:120b"):
+        elif model in ("gpt-4", "gpt-3.5", "gpt-oss:120b"):
             logger.info("Sending generation prompt to OpenAI-compatible model %s", model)
             llm_response = send_to_basai(self, model, system_prompt)
         elif model == "gemini-2.5-flash":
@@ -93,25 +93,353 @@ class LLMClient:
 
         return llm_response, system_prompt
 
-    def evaluate(self, model: str, evaluation_prompt: str) -> str:
+    def evaluate(self, exercise_text: str) -> str:
         """Send an evaluation prompt as-is to the given model and return raw text.
 
         This method must be used for scoring/evaluation, so that the
         evaluation prompt built in the API layer is not overridden by
         the exercise-generation logic.
+
+        Evaluation is currently done only with the OPenAI 5.1 model.
+        """
+        evaluation_prompt = """
+        You are an expert rater for UML class diagram exercises. Your task is to evaluate a single generated exercise according to a predefined rating instrument.
+
+        You will receive:
+        - A JSON metadata block describing the generation parameters.
+        - The full text of the exercise (problem description).
+        
+        Your job:
+        1. Apply the rating instrument with all its dimensions and items.
+        2. Assign scores on a 0/1/2 scale for each item.
+        3. Compute per-dimension scores and an overall total score.
+        4. Provide a brief textual justification for each item score.
+        
+        -----------------------------
+        RATING INSTRUMENT OVERVIEW
+        -----------------------------
+        
+        The rating instrument has five dimensions:
+        
+        1) Exercise type adherence (T1–T2)
+        2) Difficulty profile adherence (D1–D4)
+        3) Study goal alignment (S1–S3)
+        4) Length adherence (L1–L2)
+        5) Pedagogical quality (P1–P4)
+        
+        All items use the same 3-point scale:
+        - 2 = criterion fully met
+        - 1 = criterion partially met
+        - 0 = criterion not met
+        
+        You must strictly follow the rubrics below for each item.
+        
+        ---------------------------------
+        DIMENSION 1: EXERCISE TYPE (T)
+        ---------------------------------
+        
+        T1 – Explicit class diagram request  
+        Question: Does the exercise explicitly require students to construct a UML class diagram as the solution artefact?
+        
+        - 2: The exercise explicitly states that students should construct a UML class diagram as the solution artefact (e.g., “construct a UML class diagram” or equivalent wording), and no other diagram type is suggested.
+        - 1: The exercise refers to a “class diagram” or “class model”, but without explicitly mentioning UML or with somewhat vague wording (e.g., “model the classes of the system”); it is still reasonably clear that a class diagram is intended.
+        - 0: The exercise does not mention a class diagram at all, suggests a different type of diagram (e.g., sequence diagram), or leaves the solution artefact entirely unclear.
+        
+        T2 – Purely text-based task  
+        Question: Is the problem description purely text-based, without given diagrams or code?
+        
+        - 2: The problem description is purely text-based; it contains no UML diagrams, no code snippets, and no other non-textual solution elements (aside from simple lists or headings).
+        - 1: The problem description contains minor structured elements (e.g., a short table, a small code fragment) that support understanding the domain, but the task is still clearly formulated as a text-based exercise.
+        - 0: The exercise provides substantial non-textual material that is central to the task (e.g., pre-given UML diagrams, extensive code, pseudo-graphical models), so that it is no longer a purely text-based modelling task.
+        
+        T3 – Solution artefact consistency  
+        Question: Is the intended solution type in the metadata consistent with the task description?
+        
+        - 2: The intended solution type in the metadata (e.g., diagram_type = "class", exercise_type = "text_only") is fully consistent with what the task description implies; there is no contradiction.
+        - 1: There are minor inconsistencies or slightly confusing phrases, but overall it is still clear that the expected solution type matches the metadata.
+        - 0: The metadata and the task description point to different or conflicting solution types (e.g., metadata says “class diagram” but the text describes a behaviour-oriented scenario that strongly suggests another diagram type).
+        
+        -------------------------------------
+        DIMENSION 2: DIFFICULTY PROFILE (D)
+        -------------------------------------
+        
+        Use the metadata fields for difficulty level (e.g., "easy", "medium", "hard") and your understanding of typical model complexity for that level.
+        
+        D1 – Size and scope  
+        Question: Does the expected model size match the target difficulty level?
+        
+        - 2: The intended solution requires approximately the number of classes and relationships expected for the target difficulty level (e.g., few and clearly distinguishable classes for easy; noticeably more classes and relationships with richer structure for hard).
+        - 1: Size and scope are in the general vicinity of the target level, but somewhat too small or too large (e.g., slightly complex easy task or somewhat simple hard task).
+        - 0: Size and scope deviate substantially from what would be expected for that level (e.g., easy task that actually needs a large complex model; hard task solvable with a very small trivial model).
+        
+        D2 – Relationship complexity  
+        Question: Does the range and complexity of relationships fit the difficulty level?
+        
+        - 2: The task requires about the range and complexity of relationships (associations, aggregation/composition, inheritance, etc.) that are plausible for the selected level (e.g., mainly simple associations for easy; more varied and combined relationships for hard).
+        - 1: Some expected relationship types or combinations are present, but overall relationship complexity is slightly below or above the target profile.
+        - 0: Relationships are almost exclusively trivial (or, conversely, overly complex) and clearly do not match what one would expect for the selected difficulty level.
+        
+        D3 – Constraints and precision  
+        Question: Does the amount and type of constraints/precision match the difficulty level?
+        
+        - 2: The description contains the amount and type of constraints and required precision appropriate for this level (e.g., few simple constraints for easy; several explicit conditions to be reflected in the model for medium/hard).
+        - 1: Some relevant constraints or precision requirements are present, but their number or importance is somewhat below or above what would be expected for this level.
+        - 0: Either almost no relevant constraints where they would be expected (especially medium/hard), or a nominally easy task is overloaded with detailed constraints that do not fit the level.
+        
+        D4 – Ambiguity and cognitive demand  
+        Question: Does ambiguity and cognitive effort match the difficulty level?
+        
+        - 2: The degree of textual ambiguity and cognitive effort corresponds closely to the selected level (e.g., very low ambiguity and straightforward interpretation for easy; deliberate ambiguity or openness requiring modelling decisions for hard).
+        - 1: Ambiguity and cognitive demand are roughly in line with the target level, but slightly too low or too high.
+        - 0: Ambiguity and cognitive demand are clearly inappropriate for the level (e.g., highly vague and confusing for easy; extremely trivial and straightforward for hard).
+        
+        ----------------------------------
+        DIMENSION 3: STUDY GOAL (S)
+        ----------------------------------
+        
+        Use the metadata field “study_goal” (values: "LIS", "COM", "ATR", "HOL") and the following detailed descriptions of each goal. When scoring S1–S3, check how well the exercise supports the respective study goal.
+        
+        STUDY GOAL "LIS" – Incorrect use of multiplicity between classes  
+        
+        Targeted misconception: Incorrect use of multiplicity between classes (LIS).
+        
+        Explanation:  
+        In UML class diagrams, multiplicities express how many instances of one class can be related to instances of another class (e.g., 1, 0..*, 1..*, *). Many students struggle to define correct multiplicities. Typical problems include:
+        - Omitting multiplicities entirely,
+        - Using 1-to-1 where 1-to-* or 0..* is required,
+        - Failing to recognise that a whole–part relationship may involve multiple parts,
+        - Confusing multiplicity issues with method design (e.g., introducing getAllX() instead of modelling a 1-to-* association).
+        
+        For a good LIS exercise:
+        - Correct multiplicities must be crucial for a valid solution,
+        - At least one association should require a non-trivial multiplicity (e.g., 1-to-*, 0..*, 1..*),
+        - The scenario should naturally invite the typical student error of choosing 1-to-1 instead of 1-to-*,
+        - The text should be realistic and understandable for undergraduate students.
+        
+        STUDY GOAL "COM" – Classes with inappropriate or insufficient behavior  
+        
+        Targeted misconception: Classes with inappropriate or insufficient behavior (COM).
+        
+        Explanation:  
+        A class should encapsulate essential attributes and behaviours relevant for the system. Students often struggle to assign appropriate behaviour to classes. Typical problems:
+        - Methods that do not correspond to the underlying concept of the class,
+        - Overloaded classes with many unrelated methods and low cohesion,
+        - Classes without meaningful behaviour (only attributes and trivial getters/setters),
+        - Misplaced behaviour that conceptually belongs to another class.
+        
+        Examples:
+        - Adding moveFurniture() to a Room class,
+        - Attaching payment/registration methods to a Bet class instead of a Payment/Registration class,
+        - Defining classes with only get()/set() and no domain-specific operations.
+        
+        For a good COM exercise:
+        - Correct assignment of behaviour (methods) to classes is crucial for a good solution,
+        - At least one class clearly requires cohesive, domain-relevant methods,
+        - The scenario naturally invites errors like overloading a class or assigning behaviour to the wrong class,
+        - A reasonable solution requires thinking about abstraction and responsibility distribution.
+        
+        STUDY GOAL "ATR" – Attributes that should be modelled as classes  
+        
+        Targeted misconception: Defining attributes that should be modelled as classes (ATR).
+        
+        Explanation:  
+        Novices tend to simplify complex domain concepts as single attributes instead of modelling them as separate classes. Typical issues:
+        - Collapsing rich concepts into a single attribute (e.g., a "type" attribute instead of a dedicated class),
+        - Misassigning attributes to the wrong class,
+        - Omitting important attributes or related classes,
+        - Thinking in “data fields” rather than abstractions and responsibilities.
+        
+        Examples:
+        - Using an attribute "type" or "typeOfBet" instead of a separate BetType class,
+        - Assigning salary calculation directly to Employee instead of HumanResources/Payroll,
+        - Treating complex concepts as mere fields instead of entities with own attributes/behaviour.
+        
+        For a good ATR exercise:
+        - The domain must include at least one concept that clearly deserves to be a separate class rather than a simple attribute,
+        - A typical novice solution would be tempted to model this concept as a single attribute on another class,
+        - A better solution recognises the need for a dedicated class with its own attributes and behaviour,
+        - Students must think about abstraction level and which concepts should become classes.
+        
+        STUDY GOAL "HOL" – Not considering the problem holistically  
+        
+        Targeted misconception: Not considering the problem from a holistic perspective (HOL).
+        
+        Explanation:  
+        Students often focus only on the most obvious part of a problem and neglect other relevant aspects needed for a complete solution. Typical issues:
+        - Concentrating on main objects while ignoring important secondary concepts,
+        - Failing to identify all required classes or relationships,
+        - Overlooking contextual information and edge cases in the description,
+        - Violating basic OO design principles, resulting in incomplete or low-quality models.
+        
+        Examples:
+        - Ignoring collisions or boundary conditions in moving-object scenarios,
+        - Omitting essential classes in more complex domains.
+        
+        For a good HOL exercise:
+        - A correct diagram must consider multiple aspects of the scenario, not just a single main task,
+        - The text should contain secondary requirements/conditions that are easy to overlook but important,
+        - A typical novice solution would miss at least one important class/relationship/constraint because focus is only on core functionality,
+        - A high-quality solution integrates all mentioned aspects into a coherent model.
+        
+        Now apply the generic study goal items:
+        
+        S1 – Target misconception is central to the task  
+        Question: Is the selected study goal clearly at the core of the exercise?
+        
+        - 2: The selected study goal is clearly central: scenario and requirements are obviously designed around this specific conceptual difficulty (in the sense of the corresponding description above).
+        - 1: The targeted concept/misconception is recognisably relevant, but other aspects are at least equally prominent, so the focus is diluted.
+        - 0: The study goal plays at most a marginal role; the scenario does not seem designed around this particular difficulty.
+        
+        S2 – Correct solution requires addressing the targeted misconception  
+        Question: Is addressing the study goal necessary for a good solution?
+        
+        - 2: A high-quality solution is only possible if students explicitly overcome the targeted misconception (e.g., correct multiplicities for LIS, appropriate behaviour assignment for COM, correct class vs attribute decision for ATR, or consideration of all relevant aspects for HOL).
+        - 1: Correctly addressing the misconception clearly improves the solution quality, but a reasonably acceptable solution is still possible if this aspect is only partially or implicitly addressed.
+        - 0: Students can solve the task in a largely satisfactory way without really addressing the targeted misconception.
+        
+        S3 – Plausibility of typical novice errors  
+        Question: Are typical errors for this study goal plausible in this task?
+        
+        - 2: The description makes it very plausible that typical novice errors for this goal could occur (as described above for the respective study goal).
+        - 1: Such errors are possible, but not particularly likely or strongly suggested by the wording.
+        - 0: It is hard to imagine that the typical novice errors for this study goal would occur here; the scenario does not naturally invite them.
+        
+        -------------------------------
+        DIMENSION 4: LENGTH (L)
+        -------------------------------
+        
+        Use the metadata “length” (e.g., "short", "medium", "long") and the actual sentence count.
+        
+        L1 – Sentence count within target range  
+        Question: Does the number of sentences fit the length category?
+        
+        - 2: Sentence count lies within or very close to the predefined range for the selected category (short/medium/long).
+        - 1: Sentence count deviates slightly (e.g., by one or two sentences), but still roughly reflects the intended category.
+        - 0: Sentence count clearly deviates (e.g., “short” task with many sentences or “long” task with very few).
+        
+        L2 – Density and relevance of information  
+        Question: Is the information density appropriate for the length?
+        
+        - 2: Amount of information is appropriate: most sentences contribute relevant details to the modelling task, with little or no unnecessary narrative fluff.
+        - 1: A noticeable number of sentences are only loosely related (flavour text), but core information remains sufficiently dense and relevant.
+        - 0: Many sentences are off-topic, redundant, or irrelevant, making the task unnecessarily bloated or, conversely, missing important information.
+        
+        ------------------------------------
+        DIMENSION 5: PEDAGOGICAL QUALITY (P)
+        ------------------------------------
+        
+        P1 – Clarity and comprehensibility  
+        Question: Is the problem clearly worded and understandable?
+        
+        - 2: Clearly worded, unambiguous, and easy to understand for undergraduate students; main task and expectations are explicitly stated.
+        - 1: Some unclear or awkward phrases, but overall task and expectations remain understandable.
+        - 0: Several passages are unclear, ambiguous, or misleading; students are likely to be confused about what to do.
+        
+        P2 – Realism and appropriateness of the scenario  
+        Question: Is the scenario realistic and appropriate for the learner group?
+        
+        - 2: Scenario is realistic and appropriate; describes a domain that students can plausibly relate to without being distracted by implausible, exotic, or inconsistent details.
+        - 1: Scenario is somewhat artificial, unusual, or simplified, but still acceptable and not seriously distracting.
+        - 0: Scenario is clearly unrealistic, internally inconsistent, or so exotic that it is likely to distract or confuse students.
+        
+        P3 – Suitability for an introductory UML course  
+        Question: Is the task suitable for an introductory course?
+        
+        - 2: In terms of scope, complexity, and formulation, the exercise is well suited for an introductory UML course (e.g., homework or exam question); it neither clearly under- nor over-challenges typical beginners.
+        - 1: Slightly too easy or slightly too demanding, but still usable with minor adjustments.
+        - 0: Clearly inappropriate: either trivial and not requiring meaningful modelling skills, or overly complex/technical/advanced.
+        
+        P4 – Internal consistency and completeness  
+        Question: Is the task internally consistent and sufficiently complete?
+        
+        - 2: Description is internally consistent and sufficiently complete: no obvious contradictions, and all information necessary to construct a reasonable UML class diagram is present (even if some details remain open by design).
+        - 1: Minor inconsistencies, unclear references, or small gaps exist, but they do not fundamentally prevent construction of a reasonable solution.
+        - 0: Serious contradictions or missing essential information so that students cannot reasonably construct a UML class diagram without major unsupported assumptions.
+        
+        -----------------
+        SCORING AND OUTPUT
+        -----------------
+        
+        For each item (T1–T2, D1–D4, S1–S3, L1–L2, P1–P4):
+        
+        1. Decide whether the correct score is 0, 1, or 2 based on the rubrics above.
+        2. Provide a short justification (1–3 sentences) referencing concrete aspects of the exercise text and/or metadata.
+        
+        Then compute per-dimension averages as follows:
+        
+        - T = (T1 + T2) / 2                            // exercise adherence
+        - D = (D1 + D2 + D3 + D4) / 4                   // difficulty profile adherence
+        - S = (S1 + S2 + S3) / 3                        // study goal alignment
+        - L = (L1 + L2) / 2                             // length adherence
+        - P = (P1 + P2 + P3 + P4) / 4                   // pedagogical quality
+        
+        Then compute the total score as the sum of these five averages:
+        
+        - full_score = T + D + S + L + P                // range 0–10
+        
+        -----------------
+        RESPONSE FORMAT
+        -----------------
+        
+        Return your answer as valid JSON with the following structure:
+        
+        {
+          "metadata": {
+            "difficulty": "...",
+            "study_goal": "...",
+            "length": "...",
+            "model": "..."          // if given
+          },
+          "item_scores": {
+            "T1": { "score": 0|1|2, "justification": "..." },
+            "T2": { "score": 0|1|2, "justification": "..." },
+            "D1": { "score": 0|1|2, "justification": "..." },
+            "D2": { "score": 0|1|2, "justification": "..." },
+            "D3": { "score": 0|1|2, "justification": "..." },
+            "D4": { "score": 0|1|2, "justification": "..." },
+            "S1": { "score": 0|1|2, "justification": "..." },
+            "S2": { "score": 0|1|2, "justification": "..." },
+            "S3": { "score": 0|1|2, "justification": "..." },
+            "L1": { "score": 0|1|2, "justification": "..." },
+            "L2": { "score": 0|1|2, "justification": "..." },
+            "P1": { "score": 0|1|2, "justification": "..." },
+            "P2": { "score": 0|1|2, "justification": "..." },
+            "P3": { "score": 0|1|2, "justification": "..." },
+            "P4": { "score": 0|1|2, "justification": "..." }
+          },
+          "dimension_averages": {
+            "exercise_type_adherence": T,
+            "difficulty_profile_adherence": D,
+            "study_goal_alignment": S,
+            "length_adherence": L,
+            "pedagogical_quality": P
+          },
+          "total_score": {
+            "score": full_score,
+            "max": 10
+          }
+        }
+        
+        Do not include any additional commentary outside this JSON. Base all judgements strictly on the rubrics above, the study goal descriptions, and the given exercise text and metadata.
+        
+        After this prompt, you will receive the metadata and the exercise to rate.
+
+
         """
 
-        if model == "gpt-5":
-            logger.info("Sending evaluation prompt to OpenAI model %s", model)
-            return send_to_openai(self, model, evaluation_prompt)
-        if model in ("gpt-4", "gpt-3.5", "gpt-oss:120b"):
-            logger.info("Sending evaluation prompt to OpenAI-compatible model %s", model)
-            return send_to_basai(self, model, evaluation_prompt)
-        elif model == "gemini-2.5-flash":
-            logger.info("Sending evaluation prompt to Gemini model %s", model)
-            return send_to_gemini(self, model, evaluation_prompt)
-        else:
-            raise ValueError(f"Unsupported model: {model}")
+        response = self._openai_client.chat.completions.create(
+            model="gpt-5.1",
+            messages=[
+                {"role": "system", "content": evaluation_prompt},
+                {"role": "user", "content": exercise_text}
+            ]
+        )
+
+        return response.choices[0].message.content
+
+
+
+
 
 
 # Backwards-compatible function for any existing direct imports

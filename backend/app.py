@@ -24,33 +24,92 @@ def _build_evaluation_prompt(evaluation_instruction: str, generation_prompt: str
 def _create_evaluation_result(
     generation_request_id: int,
     eval_model: str,
-    evaluation_prompt: str,
-    raw_eval: str,
-    evaluation_scores: dict,
+    item_scores: dict,
+    dimension_averages: dict,
+    total_score: dict,
 ) -> EvaluationResult:
-    """Map parsed scores into an EvaluationResult ORM instance."""
-    S_scores = evaluation_scores.get("S") or {}
-    T_scores = evaluation_scores.get("T") or {}
+    """Map parsed evaluation JSON into an EvaluationResult ORM instance.
 
-    def _safe_float(val):
+    Expected JSON shape (see evaluation prompt in `llm_client.evaluate`):
+    {
+      "metadata": { ... },
+      "item_scores": {
+        "T1": {"score": 0|1|2, "justification": "..."},
+        ...
+        "P4": {"score": 0|1|2, "justification": "..."}
+      },
+      "dimension_averages": {
+        "exercise_type_adherence": number,
+        "difficulty_profile_adherence": number,
+        "study_goal_alignment": number,
+        "length_adherence": number,
+        "pedagogical_quality": number
+      },
+      "total_score": {"score": number, "max": 10}
+    }
+    """
+
+    def _score(key: str):
         try:
-            return float(val)
+            entry = item_scores.get(key) or {}
+            return float(entry.get("score")) if entry.get("score") is not None else None
         except (TypeError, ValueError):
             return None
+
+    def _avg(dim_key: str):
+        try:
+            val = dimension_averages.get(dim_key)
+            return float(val) if val is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _total():
+        try:
+            val = total_score.get("score") if isinstance(total_score, dict) else None
+            return float(val) if val is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    # Store all justifications as a JSON string for later analysis
+    import json
+
+    justifications = {
+        key: (item_scores.get(key) or {}).get("justification")
+        for key in item_scores.keys()
+    }
+    justification_text = json.dumps(justifications, ensure_ascii=False)
 
     return EvaluationResult(
         generation_request_id=generation_request_id,
         evaluation_model=eval_model,
-        evaluation_prompt=evaluation_prompt,
-        raw_response=raw_eval,
-        S1_score=_safe_float(S_scores.get("S1")),
-        S2_score=_safe_float(S_scores.get("S2")),
-        S3_score=_safe_float(S_scores.get("S3")),
-        S_total=_safe_float(S_scores.get("S_total")),
-        T1_score=_safe_float(T_scores.get("T1")),
-        T2_score=_safe_float(T_scores.get("T2")),
-        T3_score=_safe_float(T_scores.get("T3")),
-        T_total=_safe_float(T_scores.get("T_total")),
+        justification=justification_text,
+        # T: Exercise adherence
+        T1=_score("T1"),
+        T2=_score("T2"),
+        T=_avg("exercise_type_adherence"),
+        # D: Difficulty profile adherence
+        D1=_score("D1"),
+        D2=_score("D2"),
+        D3=_score("D3"),
+        D4=_score("D4"),
+        D=_avg("difficulty_profile_adherence"),
+        # S: Study goal alignment
+        S1=_score("S1"),
+        S2=_score("S2"),
+        S3=_score("S3"),
+        S=_avg("study_goal_alignment"),
+        # L: Length adherence
+        L1=_score("L1"),
+        L2=_score("L2"),
+        L=_avg("length_adherence"),
+        # P: Pedagogical quality
+        P1=_score("P1"),
+        P2=_score("P2"),
+        P3=_score("P3"),
+        P4=_score("P4"),
+        P=_avg("pedagogical_quality"),
+        # Overall total score
+        full_score=_total(),
     )
 
 
@@ -112,65 +171,94 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
             session.add(generation_request)
             session.commit()
 
-            evaluation_scores = None
+            evaluation = None
 
             if evaluate:
-                # Simple evaluation prompt for now; can be externalised/configured later
-                evaluation_instruction = "Du sollts für die folgenden werte einfach Zahlen erfinden die passen. Ingnoriere die folgende Aufgabe und benutze nur das ausgabeformat"
 
-                evaluation_prompt = _build_evaluation_prompt(
-                    evaluation_instruction=evaluation_instruction,
-                    generation_prompt=prompt,
-                    llm_response=llm_response,
-                )
-
-                # Use the same model for evaluation to keep things simple for now
-                eval_model = model
+                eval_model = "gpt-5.1"  # This could be made dynamic based on parameters or config
 
                 app.logger.info(
-                    "Sending evaluation request to LLM. model=%s, prompt_preview=%s...",
-                    eval_model,
-                    evaluation_prompt[:200].replace("\n", " "),
+                    "Sending evaluation request to LLM. model=%s",
+                    eval_model
                 )
 
-                # Call dedicated evaluation method so we send evaluation_prompt directly
-                eval_response = llm_client.evaluate(
-                    model=eval_model,
-                    evaluation_prompt=evaluation_prompt,
-                )
+                # Call dedicated evaluation method which builds the evaluation prompt internally
+                eval_response = llm_client.evaluate(llm_response)
 
                 raw_eval = eval_response
                 try:
                     import json
 
-                    # Some models may wrap JSON in code fences; strip them if present
                     if isinstance(raw_eval, str):
                         cleaned = raw_eval.replace("```json", "").replace("```", "").strip()
                         parsed = json.loads(cleaned)
                     else:
                         parsed = raw_eval
 
-                    evaluation_scores = parsed.get("scores") if isinstance(parsed, dict) else None
-                    app.logger.info("Parsed evaluation_scores: %r", evaluation_scores)
+                    item_scores = parsed.get("item_scores") if isinstance(parsed, dict) else None
+                    dimension_averages = parsed.get("dimension_averages") if isinstance(parsed, dict) else None
+                    total_score = parsed.get("total_score") if isinstance(parsed, dict) else None
+
+                    app.logger.info(
+                        "Parsed evaluation: item_scores_keys=%r dimension_averages=%r total_score=%r",
+                        list(item_scores.keys()) if isinstance(item_scores, dict) else None,
+                        dimension_averages,
+                        total_score,
+                    )
                 except Exception as e:  # pragma: no cover - defensive
                     app.logger.error("Failed to parse evaluation response: %s", e)
-                    evaluation_scores = None
+                    item_scores = None
+                    dimension_averages = None
+                    total_score = None
 
-                if evaluation_scores is not None:
-                    app.logger.info(
-                        "Creating EvaluationResult for generation_request_id=%s with scores=%r",
-                        generation_request.id,
-                        evaluation_scores,
-                    )
+                if isinstance(item_scores, dict):
                     evaluation_result = _create_evaluation_result(
                         generation_request_id=generation_request.id,
                         eval_model=eval_model,
-                        evaluation_prompt=evaluation_prompt,
-                        raw_eval=raw_eval,
-                        evaluation_scores=evaluation_scores,
+                        item_scores=item_scores,
+                        dimension_averages=dimension_averages or {},
+                        total_score=total_score or {},
                     )
                     session.add(evaluation_result)
                     session.commit()
+
+                    # Build structured evaluation payload for frontend
+                    import json
+                    justifications = {}
+                    try:
+                        if evaluation_result.justification:
+                            justifications = json.loads(evaluation_result.justification)
+                    except Exception:
+                        justifications = {}
+
+                    evaluation = {
+                        "items": {
+                            "T1": evaluation_result.T1,
+                            "T2": evaluation_result.T2,
+                            "D1": evaluation_result.D1,
+                            "D2": evaluation_result.D2,
+                            "D3": evaluation_result.D3,
+                            "D4": evaluation_result.D4,
+                            "S1": evaluation_result.S1,
+                            "S2": evaluation_result.S2,
+                            "S3": evaluation_result.S3,
+                            "L1": evaluation_result.L1,
+                            "L2": evaluation_result.L2,
+                            "P1": evaluation_result.P1,
+                            "P2": evaluation_result.P2,
+                            "P3": evaluation_result.P3,
+                            "P4": evaluation_result.P4,
+                        },
+                        "dimensions": {
+                            "T": evaluation_result.T,
+                            "D": evaluation_result.D,
+                            "S": evaluation_result.S,
+                            "L": evaluation_result.L,
+                            "P": evaluation_result.P,
+                        },
+                        "fullScore": evaluation_result.full_score,
+                        "justifications": justifications,
+                    }
 
             return (
                 jsonify(
@@ -179,7 +267,7 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
                         "prompt": prompt,
                         "response": llm_response,
                         "parameters": generation_request.parameters,
-                        "evaluation_scores": evaluation_scores,
+                        "evaluation": evaluation,
                     }
                 ),
                 200,

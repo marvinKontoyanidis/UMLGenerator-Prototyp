@@ -43,18 +43,36 @@ class EvaluationResult(Base):
     )
 
     # Detailed scalar scores for scientific analysis
-    S1_score = Column(Float, nullable=True)
-    S2_score = Column(Float, nullable=True)
-    S3_score = Column(Float, nullable=True)
-    S_total = Column(Float, nullable=True)
-
-    T1_score = Column(Float, nullable=True)
-    T2_score = Column(Float, nullable=True)
-    T3_score = Column(Float, nullable=True)
-    T_total = Column(Float, nullable=True)
 
     evaluation_model = Column(Text, nullable=False)
-    evaluation_prompt = Column(Text, nullable=False)
-    raw_response = Column(Text, nullable=False)
+    justification = Column(Text, nullable=False)
+
+    # T: Exercise adherence
+    T1 = Column(Float, nullable=True)
+    T2 = Column(Float, nullable=True)
+    T = Column(Float, nullable=True)
+    # D: Difficulty profile adherence
+    D1 = Column(Float, nullable=True)
+    D2 = Column(Float, nullable=True)
+    D3 = Column(Float, nullable=True)
+    D4 = Column(Float, nullable=True)
+    D = Column(Float, nullable=True)
+    # S: Study goal alignment
+    S1 = Column(Float, nullable=True)
+    S2 = Column(Float, nullable=True)
+    S3 = Column(Float, nullable=True)
+    S = Column(Float, nullable=True)
+    # L: Length adherence
+    L1 = Column(Float, nullable=True)
+    L2 = Column(Float, nullable=True)
+    L = Column(Float, nullable=True)
+    # P: Pedagogical quality
+    P1 = Column(Float, nullable=True)
+    P2 = Column(Float, nullable=True)
+    P3 = Column(Float, nullable=True)
+    P4 = Column(Float, nullable=True)
+    P = Column(Float, nullable=True)
+
+    full_score = Column(Float, nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
