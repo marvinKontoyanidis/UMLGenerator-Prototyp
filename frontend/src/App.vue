@@ -3,6 +3,7 @@
     <h1>UML Generator</h1>
     <p class="hint">Please select the desired parameters to configure the UML generator.</p>
     <div class="dropdowns">
+      <!-- Parameter selection controlling how the backend generates the task -->
       <label>
         Model:
         <select v-model="param_model">
@@ -147,20 +148,25 @@ export default {
   name: 'App',
   data() {
     return {
+      // Form state for all generation parameters
       param_model: 'gemini-2.5-flash',
       param_ex_type: 'Class diagram',
       param_dif_level: 'Easy',
       param_study_goal: 'LIS',
       param_length: 'Short',
       evaluate: true,
+
+      // Request / response state
       isSubmitting: false,
-      result: null,
-      parsedTask: null,
-      evaluation: null,
+      result: null,        // raw response from the backend
+      parsedTask: null,    // JSON-parsed task returned by the generation model
+      evaluation: null,    // structured evaluation (scores and justifications)
       error: ''
     }
   },
   computed: {
+    // Convert the evaluation "dimensions" map into an array that is easy to
+    // iterate over in the template.
     dimensionRows() {
       if (!this.evaluation) return []
       return [
@@ -171,6 +177,8 @@ export default {
         { code: 'P', label: 'Pedagogical quality', score: this.evaluation.dimensions.P }
       ]
     },
+    // Flatten per-item scores into table rows and attach human-readable
+    // dimension labels and justifications.
     itemRows() {
       if (!this.evaluation) return []
       const rows = []
@@ -204,6 +212,8 @@ export default {
     }
   },
   methods: {
+    // Trigger a generation request to the backend and post-process the
+    // response (parsing JSON and unpacking evaluation details).
     async submitGeneration() {
       this.error = ''
       this.result = null
@@ -218,6 +228,7 @@ export default {
         param_length: this.param_length
       }
 
+      // Basic client-side validation: all dropdowns must be selected.
       if (
         !parameters.param_model ||
         !parameters.param_ex_type ||
@@ -242,6 +253,9 @@ export default {
           return
         }
 
+        // The LLM sometimes returns JSON inside an optional ```json code
+        // block. Strip those fences and attempt to parse the remaining
+        // string. If that fails, we fall back to showing the raw text.
         if (typeof raw === 'string') {
           const cleaned = raw.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '')
           try {
@@ -251,6 +265,7 @@ export default {
             console.error('Error parsing LLM response string:', e, cleaned)
           }
         } else if (typeof raw === 'object') {
+          // Some models already return a JSON object instead of a string.
           this.parsedTask = raw
         } else {
           this.parsedTask = null
@@ -260,7 +275,8 @@ export default {
         // Extract evaluation details (if backend provides them)
         if (this.result.evaluation_scores && typeof this.result.evaluation_scores === 'object') {
           const scores = this.result.evaluation_scores
-          // Legacy simple map
+          // Legacy simple map kept for backwards compatibility; the
+          // current UI prefers the structured ``evaluation`` object.
           this.evaluationScores = scores
         }
 

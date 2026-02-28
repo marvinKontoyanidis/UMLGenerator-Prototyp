@@ -10,18 +10,21 @@ class GenerationRequest(Base):
 
     id = Column(Integer, primary_key=True)
 
+    # Full JSON payload of the request parameters as sent by the frontend
     parameters = Column(JSON, nullable=False)
 
-    # Wichtige Filterfelder als eigene Spalten
+    # Important filter fields as separate columns for querying/aggregation
     param_model = Column(Text, nullable=False)
     param_ex_type = Column(Text, nullable=False)
     param_dif_level = Column(Text, nullable=False)
     param_study_goal = Column(Text, nullable=False)
     param_length = Column(Text, nullable=False)
 
+    # Prompt that was sent to the LLM and its raw textual response
     prompt_template = Column(Text, nullable=False)
     generated_response = Column(Text, nullable=False)
 
+    # Basic timestamps for auditing
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(
         DateTime,
@@ -32,6 +35,18 @@ class GenerationRequest(Base):
 
 
 class EvaluationResult(Base):
+    """Numeric and textual scores for one LLM-based evaluation.
+
+    Each row belongs to exactly one :class:`GenerationRequest` and stores
+    both the detailed per-item scores (T1, D1, ...) and the dimension
+    aggregates (T, D, S, L, P) as computed by the evaluation LLM.
+
+    The ``justification`` column contains a JSON string that maps each
+    rating item (e.g. "T1") to the natural language explanation provided
+    by the LLM. Keeping this as text avoids tight coupling to any ORM
+    representation and makes it easy to export for later analysis.
+    """
+
     __tablename__ = "evaluation_results"
 
     id = Column(Integer, primary_key=True)
@@ -42,9 +57,10 @@ class EvaluationResult(Base):
         nullable=False,
     )
 
-    # Detailed scalar scores for scientific analysis
-
+    # Model identifier used for the evaluation (e.g. "gpt-5.1")
     evaluation_model = Column(Text, nullable=False)
+
+    # JSON-encoded map of item-id -> textual justification
     justification = Column(Text, nullable=False)
 
     # T: Exercise adherence
@@ -73,6 +89,7 @@ class EvaluationResult(Base):
     P4 = Column(Float, nullable=True)
     P = Column(Float, nullable=True)
 
+    # Sum of the five dimension averages (range 0..10)
     full_score = Column(Float, nullable=True)
 
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

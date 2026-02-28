@@ -10,8 +10,8 @@ from openai import OpenAI
 import requests
 from sqlalchemy import null
 
-# Load local environment file if present (for development)
-# This will not override already-set environment variables.
+# Load environment variables from a local .env file for development.
+# Existing environment variables are not overwritten.
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env.local"), override=False)
 
 logger = logging.getLogger(__name__)
@@ -19,16 +19,20 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class LLMConfig:
-    # ChatGPT OpenAI
+    """Configuration values for all LLM backends used by this service."""
+
+    # API key for the official OpenAI client
     openai_api_key: Optional[str] = None
-    # BaSiAI (OpenAI-compatible API)
+    # Base URL of the BaSiAI (OpenAI-compatible) deployment
     bisai_url: str = None
+    # API key for the BaSiAI deployment
     bisai_api_key: Optional[str] = None
-    # Gemini AI Google
+    # API key for Google Gemini
     gemini_api_key: Optional[str] = None
 
     @classmethod
     def from_env(cls) -> "LLMConfig":
+        """Create a config instance by reading values from environment variables."""
         return cls(
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             bisai_url=os.getenv("BISAI_BASE_URL"),
@@ -38,9 +42,10 @@ class LLMConfig:
 
 
 class LLMClient:
-    """Simple LLM abstraction supporting OpenAI and Gemini."""
+    """High-level client for talking to OpenAI, BaSiAI and Gemini models."""
 
     def __init__(self, config: Optional[LLMConfig] = None) -> None:
+        """Initialize the client and validate that required keys are present."""
         self.config = config or LLMConfig.from_env()
 
         if not self.config.bisai_api_key:
@@ -53,32 +58,26 @@ class LLMClient:
                 "OPENAI_KEY is not set. Please configure it in .env.local or the environment."
             )
 
+        # Official OpenAI client, used for generation and evaluation
         self._openai_client = OpenAI(api_key=self.config.openai_api_key)
 
-
-        # Gemini is optional – only initialize if a key is present
+        # Gemini is optional – configure the SDK only when a key is present
         self._gemini_client: Optional[genai.GenerativeModel] = None
         if self.config.gemini_api_key:
             genai.configure(api_key=self.config.gemini_api_key)
 
     def generate(self, model: str, ex_type: str, dif_level: str, study_goal: str, length: str) -> tuple[str, str]:
-        """Generate a UML exercise using a given model.
-
-        This method is **only** for exercise generation. It always builds
-        an internal system prompt via `prompt_generation` based on the
-        structured parameters.
-
-        - Default model: "gpt-4" (OpenAI)
-        - Supported values: "gpt-4", "gpt-3.5", "gemini-1.5"
+        """Generate a UML exercise with the given model and parameter profile.
 
         Returns:
             - llm_response: `str`
             - system_prompt: `str`
         """
 
+        # Build the long system prompt from structured parameters
         system_prompt = prompt_generation(ex_type, dif_level, study_goal, length)
 
-
+        # Dispatch to the correct backend based on the model name
         if model == "gpt-5.1-chat-latest":
             logger.info("Sending generation prompt to OpenAI model %s", model)
             llm_response = send_to_openai(self, model, system_prompt)
@@ -441,6 +440,7 @@ _client_singleton: Optional[LLMClient] = None
 
 
 def _get_default_client() -> LLMClient:
+    """Return a lazily created process-wide LLMClient instance."""
     global _client_singleton
     if _client_singleton is None:
         _client_singleton = LLMClient()
@@ -452,6 +452,7 @@ def generate_uml_exercise_with_openai(user_prompt: str) -> str:
     return _get_default_client().generate(user_prompt)
 
 def send_to_openai(self: LLMClient, model_name: str, system_prompt: str) -> str:
+    """Send a single system prompt to an OpenAI chat completion model."""
     response = self._openai_client.chat.completions.create(
         model=model_name,
         messages=[
@@ -461,7 +462,9 @@ def send_to_openai(self: LLMClient, model_name: str, system_prompt: str) -> str:
     )
     return response.choices[0].message.content
 
+
 def send_to_basai(self: LLMClient, model_name: str, system_prompt: str) -> str:
+    """Send a chat completion request to a BaSiAI OpenAI-compatible endpoint."""
     url = f"{self.config.bisai_url}/api/chat/completions"
     headers = {
         'Authorization': f'Bearer {self.config.bisai_api_key}',
@@ -483,6 +486,7 @@ def send_to_basai(self: LLMClient, model_name: str, system_prompt: str) -> str:
 
 
 def send_to_gemini(self: LLMClient, model_name: str, system_prompt: str) -> str:
+    """Send a single text prompt to a Google Gemini model using the SDK."""
     if not self.config.gemini_api_key:
         raise RuntimeError(
             "GEMINI_API_KEY is not set. Please configure it in .env.local or the environment to use Gemini."
@@ -495,6 +499,7 @@ def send_to_gemini(self: LLMClient, model_name: str, system_prompt: str) -> str:
 
 
 def prompt_generation(exercise_type: str, difficulty_level: str, study_goal: str, length: str) -> str:
+    """Build the full system prompt for exercise generation from high-level parameters."""
     start_prompt = None
     exercise_prompt = None
     difficulty_prompt = None
@@ -772,13 +777,11 @@ def prompt_generation(exercise_type: str, difficulty_level: str, study_goal: str
 
     """
 
-    # Combine all parts into a single prompt
-
+    # Combine all parts into a single prompt string and return it
     return (start_prompt + " \n\n "
             + exercise_prompt + " \n\n "
             + difficulty_prompt + " \n\n "
             + study_goal_prompt + " \n\n "
             + length_prompt + " \n\n "
             + output_prompt)
-
 

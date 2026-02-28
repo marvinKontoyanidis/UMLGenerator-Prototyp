@@ -15,7 +15,7 @@ def _create_evaluation_result(
     dimension_averages: dict,
     total_score: dict,
 ) -> EvaluationResult:
-    """Map parsed evaluation JSON into an EvaluationResult ORM instance.
+    """Convert parsed evaluation JSON into an :class:`EvaluationResult`.
 
     Expected JSON shape (see evaluation prompt in `llm_client.evaluate`):
     {
@@ -37,6 +37,7 @@ def _create_evaluation_result(
     """
 
     def _score(key: str):
+        """Safely extract and convert a single item score (e.g. "T1")."""
         try:
             entry = item_scores.get(key) or {}
             return float(entry.get("score")) if entry.get("score") is not None else None
@@ -44,6 +45,7 @@ def _create_evaluation_result(
             return None
 
     def _avg(dim_key: str):
+        """Safely extract and convert a dimension average value."""
         try:
             val = dimension_averages.get(dim_key)
             return float(val) if val is not None else None
@@ -51,6 +53,7 @@ def _create_evaluation_result(
             return None
 
     def _total():
+        """Safely extract and convert the overall total score."""
         try:
             val = total_score.get("score") if isinstance(total_score, dict) else None
             return float(val) if val is not None else None
@@ -106,6 +109,8 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
     logging.basicConfig(level=logging.INFO)
 
     if session_factory is None:
+        # Lazily create engine and session factory when no custom one is
+        # supplied (typical production path).
         resolved_db_url = database_url or os.getenv(
             "DATABASE_URL",
             "postgresql+psycopg2://uml_user:uml_pass@db:5432/uml_tasks",
@@ -115,10 +120,29 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
         session_factory = sessionmaker(bind=engine)
     app.session_factory = session_factory
 
+    # Default LLM client used for both generation and evaluation
     llm_client = llm_client or LLMClient()
 
     @app.route("/api/generate", methods=["POST"])
     def generate_task():
+        """Generate a new UML exercise and optionally evaluate it.
+
+        Expects JSON of the form::
+
+            {
+              "parameters": {
+                "param_model": "...",
+                "param_ex_type": "...",
+                "param_dif_level": "...",
+                "param_study_goal": "...",
+                "param_length": "..."
+              },
+              "evaluate": true | false
+            }
+
+        The generated exercise as well as the evaluation (if requested)
+        are persisted in the database and returned to the caller.
+        """
         payload = request.get_json() or {}
         parameters = payload.get("parameters")
         evaluate = bool(payload.get("evaluate", False))
@@ -128,12 +152,14 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
 
         session = session_factory()
         try:
+            # Extract strongly-typed parameters from the generic dict.
             model = parameters["param_model"]
             ex_type = parameters["param_ex_type"]
             dif_level = parameters["param_dif_level"]
             study_goal = parameters["param_study_goal"]
             length = parameters["param_length"]
 
+            # Ask the LLM client service to build a prompt and generate an exercise
             llm_response, prompt = llm_client.generate(
                 model=model,
                 ex_type=ex_type,
@@ -145,6 +171,7 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
             app.logger.info("Generated prompt for LLM: %s", prompt)
             app.logger.info("LLM response: %s", llm_response)
 
+            # Persist request + response for later analysis
             generation_request = GenerationRequest(
                 parameters=parameters,
                 param_model=model,
@@ -176,6 +203,7 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
                 try:
                     import json
 
+                    # Evaluation model might wrap the JSON in ```json fences.
                     if isinstance(raw_eval, str):
                         cleaned = raw_eval.replace("```json", "").replace("```", "").strip()
                         parsed = json.loads(cleaned)
@@ -199,6 +227,7 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
                     total_score = None
 
                 if isinstance(item_scores, dict):
+                    # Map parsed JSON into structured ORM entity
                     evaluation_result = _create_evaluation_result(
                         generation_request_id=generation_request.id,
                         eval_model=eval_model,
@@ -267,11 +296,13 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
 
     @app.route("/api/health", methods=["GET"])
     def health_check():
+        """Light-weight liveness probe used by Docker / orchestrators."""
         return "OK", 200
 
     return app
 
 
 if __name__ == "__main__":
+    # Running via ``python app.py``: create a default app and serve it.
     application = create_app()
     application.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)))
