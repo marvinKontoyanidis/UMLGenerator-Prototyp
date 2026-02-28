@@ -52,6 +52,19 @@
       Evaluate generated exercise with a second LLM
     </label>
 
+    <div class="task-viewer">
+      <h2>Load existing exercise by ID</h2>
+      <div class="task-viewer-controls">
+        <input
+          v-model.number="viewTaskId"
+          type="number"
+          min="1"
+          placeholder="Enter task ID"
+        />
+        <button @click="loadTaskById">Load task</button>
+      </div>
+    </div>
+
     <button :disabled="isSubmitting" @click="submitGeneration">
       {{ isSubmitting ? "Generating..." : "Generate exercise" }}
     </button>
@@ -157,7 +170,8 @@ export default {
       result: null,
       parsedTask: null,
       evaluation: null,
-      error: ''
+      error: '',
+      viewTaskId: null,
     }
   },
   computed: {
@@ -285,6 +299,55 @@ export default {
       } finally {
         this.isSubmitting = false
       }
+    },
+    async loadTaskById() {
+      this.error = ''
+      this.result = null
+      this.parsedTask = null
+      this.evaluation = null
+
+      if (!this.viewTaskId) {
+        this.error = 'Please enter a valid task ID.'
+        return
+      }
+
+      try {
+        const response = await axios.get(`/api/tasks/${this.viewTaskId}`)
+        this.result = response.data
+
+        const raw = this.result.response
+        if (!raw) {
+          this.parsedTask = null
+          console.error('No stored response for task', this.viewTaskId)
+          return
+        }
+
+        if (typeof raw === 'string') {
+          const cleaned = raw.replace(/^```[a-zA-Z]*\n?/, '').replace(/```$/, '')
+          try {
+            this.parsedTask = JSON.parse(cleaned)
+          } catch (e) {
+            this.parsedTask = null
+            console.error('Error parsing stored LLM response string:', e, cleaned)
+          }
+        } else if (typeof raw === 'object') {
+          this.parsedTask = raw
+        } else {
+          this.parsedTask = null
+          console.error('Unexpected type for stored result.response:', typeof raw, raw)
+        }
+
+        if (this.result.evaluation && typeof this.result.evaluation === 'object') {
+          this.evaluation = {
+            items: this.result.evaluation.items || {},
+            dimensions: this.result.evaluation.dimensions || {},
+            fullScore: this.result.evaluation.fullScore ?? null,
+            justifications: this.result.evaluation.justifications || {}
+          }
+        }
+      } catch (err) {
+        this.error = err.response?.data?.error || 'Error loading task.'
+      }
     }
   }
 }
@@ -328,6 +391,27 @@ export default {
   display: block;
   margin-top: 12px;
   text-align: left;
+}
+.task-viewer {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  text-align: left;
+}
+.task-viewer-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.task-viewer-controls input[type='number'] {
+  flex: 1;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+}
+.task-viewer-controls button {
+  padding: 6px 12px;
 }
 textarea {
   width: 100%;

@@ -260,27 +260,98 @@ def create_app(*, session_factory=None, llm_client=None, database_url=None):
                         "justifications": justifications,
                     }
 
-            return (
-                jsonify(
-                    {
-                        "id": generation_request.id,
-                        "prompt": prompt,
-                        "response": llm_response,
-                        "parameters": generation_request.parameters,
-                        "evaluation": evaluation,
-                    }
-                ),
-                200,
+            return jsonify(
+                {
+                    "id": generation_request.id,
+                    "parameters": parameters,
+                    "response": llm_response,
+                    "prompt": prompt,
+                    "evaluation": evaluation,
+                }
             )
-        except Exception:
+        except Exception as e:
+            app.logger.error("Error in /api/generate: %s", e, exc_info=True)
             session.rollback()
-            raise
+            return jsonify({"error": str(e)}), 500
         finally:
             session.close()
 
     @app.route("/api/health", methods=["GET"])
     def health_check():
         return "OK", 200
+
+    @app.route("/api/tasks/<int:task_id>", methods=["GET"])
+    def get_task(task_id: int):
+        """Return a stored generation request (and its evaluation) by ID.
+
+        The response mirrors the shape of /api/generate, so the frontend
+        can reuse the same rendering logic.
+        """
+        session = session_factory()
+        try:
+            generation_request = session.query(GenerationRequest).get(task_id)
+            if generation_request is None:
+                return jsonify({"error": f"Task with id {task_id} not found"}), 404
+
+            # Fetch the latest evaluation result for this task (if any)
+            evaluation_row = (
+                session.query(EvaluationResult)
+                .filter(EvaluationResult.generation_request_id == generation_request.id)
+                .order_by(EvaluationResult.created_at.desc())
+                .first()
+            )
+
+            evaluation = None
+            if evaluation_row is not None:
+                import json as _json
+                justifications = {}
+                try:
+                    if evaluation_row.justification:
+                        justifications = _json.loads(evaluation_row.justification)
+                except Exception:
+                    justifications = {}
+
+                evaluation = {
+                    "items": {
+                        "T1": evaluation_row.T1,
+                        "T2": evaluation_row.T2,
+                        "D1": evaluation_row.D1,
+                        "D2": evaluation_row.D2,
+                        "D3": evaluation_row.D3,
+                        "D4": evaluation_row.D4,
+                        "S1": evaluation_row.S1,
+                        "S2": evaluation_row.S2,
+                        "S3": evaluation_row.S3,
+                        "L1": evaluation_row.L1,
+                        "L2": evaluation_row.L2,
+                        "P1": evaluation_row.P1,
+                        "P2": evaluation_row.P2,
+                        "P3": evaluation_row.P3,
+                        "P4": evaluation_row.P4,
+                    },
+                    "dimensions": {
+                        "T": evaluation_row.T,
+                        "D": evaluation_row.D,
+                        "S": evaluation_row.S,
+                        "L": evaluation_row.L,
+                        "P": evaluation_row.P,
+                    },
+                    "fullScore": evaluation_row.full_score,
+                    "justifications": justifications,
+                }
+
+            return jsonify(
+                {
+                    "id": generation_request.id,
+                    "parameters": generation_request.parameters,
+                    "response": generation_request.generated_response,
+                    "prompt": generation_request.prompt_template,
+                    "evaluation": evaluation,
+                    "created_at": generation_request.created_at.isoformat() if generation_request.created_at else None,
+                }
+            )
+        finally:
+            session.close()
 
     return app
 
