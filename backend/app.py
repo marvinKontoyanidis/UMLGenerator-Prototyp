@@ -8,19 +8,6 @@ from services.llm_client import LLMClient
 import logging
 
 
-def _build_evaluation_prompt(evaluation_instruction: str, generation_prompt: str, llm_response: str) -> str:
-    """Build the full evaluation prompt that will be sent to the evaluation LLM."""
-    return (
-        f"{evaluation_instruction}\n\n"
-        f"--- Generation prompt ---\n{generation_prompt}\n\n"
-        f"--- Generated exercise (JSON) ---\n{llm_response}\n\n"
-        "You must return a single valid JSON object with the following structure: "
-        "{\"scores\": {\"S\": {\"S1\": number, \"S2\": number, \"S3\": number, \"S_total\": number}, "
-        "\"T\": {\"T1\": number, \"T2\": number, \"T3\": number, \"T_total\": number}}} "
-        "Use values between 0 and 1 for each item. Do not include any comments or text outside the JSON."
-    )
-
-
 def _create_evaluation_result(
     generation_request_id: int,
     eval_model: str,

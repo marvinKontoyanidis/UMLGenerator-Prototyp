@@ -8,7 +8,6 @@ services:
       - LLM_API_KEY=demo-key
     depends_on:
       - db
-      - llm
     ports:
       - "5000:5000"
   frontend:
@@ -27,11 +26,5 @@ services:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "55432:5432"
-  llm:
-    build: ./llm-mock
-    environment:
-      - RESPONSE_TEXT=Demo response from mock LLM
-    ports:
-      - "8000:8000"
 volumes:
   postgres_data:
