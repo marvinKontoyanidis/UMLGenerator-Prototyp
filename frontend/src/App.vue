@@ -28,7 +28,7 @@
       <label>
         Study goal:
         <select v-model="param_study_goal">
-          <option value="ART">Defining attributes that could be a class (ART)</option>
+          <option value="ATR">Defining attributes that could be a class (ATR)</option>
           <option value="HOL">Not considering the problem from a holistic perspective (HOL)</option>
           <option value="LIS">Incorrect use of multiplicity between classes (LIS)</option>
           <option value="COM">Classes with inadequate or insufficient behavior (COM)</option>

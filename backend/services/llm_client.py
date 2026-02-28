@@ -152,13 +152,7 @@ class LLMClient:
         - 1: The problem description contains minor structured elements (e.g., a short table, a small code fragment) that support understanding the domain, but the task is still clearly formulated as a text-based exercise.
         - 0: The exercise provides substantial non-textual material that is central to the task (e.g., pre-given UML diagrams, extensive code, pseudo-graphical models), so that it is no longer a purely text-based modelling task.
         
-        T3 – Solution artefact consistency  
-        Question: Is the intended solution type in the metadata consistent with the task description?
-        
-        - 2: The intended solution type in the metadata (e.g., diagram_type = "class", exercise_type = "text_only") is fully consistent with what the task description implies; there is no contradiction.
-        - 1: There are minor inconsistencies or slightly confusing phrases, but overall it is still clear that the expected solution type matches the metadata.
-        - 0: The metadata and the task description point to different or conflicting solution types (e.g., metadata says “class diagram” but the text describes a behaviour-oriented scenario that strongly suggests another diagram type).
-        
+       
         -------------------------------------
         DIMENSION 2: DIFFICULTY PROFILE (D)
         -------------------------------------
@@ -648,7 +642,7 @@ def prompt_generation(exercise_type: str, difficulty_level: str, study_goal: str
                 Your exercise must therefore explicitly support the study goal of practising and assessing the proper assignment of behavior to classes in UML class diagrams.
 
             """
-        case "ART":
+        case "ATR":
             study_goal_prompt = """
                 Study goal (targeted misconception): Defining attributes that should be modelled as classes (ATR).
     
